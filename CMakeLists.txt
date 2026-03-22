@@ -10,4 +10,5 @@ include_directories(include)
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 add_executable(Nasdaq-itch-parser ${SOURCES}
-        src/main.cpp)
+        src/main.cpp
+        include/messages.h)
