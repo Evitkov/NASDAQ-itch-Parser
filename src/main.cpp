@@ -1,6 +1,8 @@
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <string>
+
+#include "messages.h"
 
 
 int main() {
@@ -16,5 +18,24 @@ int main() {
         return 1;
     }
     std::cout << "[SYSTEM] File opened successfully" << std::endl;
+    char message_type;
+    while (file.read(&message_type,1)) {
+
+        switch (message_type) {
+            case 'S': {
+                // in c++ we can step back seek -1 from our current position
+                file.seekg(-1, std::ios::cur);
+                SystemEventMessage message{};
+                // "Take the address of message, and pretend it's just a pointer to raw chars"
+                file.read(reinterpret_cast<char*>(&message), sizeof(message));
+                break;
+            }
+
+
+
+        }
+
+
+    }
 
 }
