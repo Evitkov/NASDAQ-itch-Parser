@@ -4,8 +4,10 @@
 #include <string>
 #include <string_view>
 
+#include "Market.h"
 #include "messages.h"
 #include "utils.h"
+#include "chrono"
 
 
 int main() {
@@ -20,10 +22,21 @@ int main() {
         std::cerr << "[ERROR] The provided path is incorrect: " << filepath << std::endl;
         return 1;
     }
+
+
     std::cout << "[SYSTEM] File opened successfully" << std::endl;
+
+    Market nasdaq_market;
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    uint64_t message_count = 0;
     //Read the 2-byte length header first - specific to NASDAQ historical files
     uint16_t message_length;
     while (file.read(reinterpret_cast<char*>(&message_length),2)) {
+        message_count++;
+        if (message_count % 10000000 == 0) {
+            std::cout << "[PROGRESS] Processed " << (message_count / 1000000) << " million messages..." << std::endl;
+        }
 
         // The length is big endian and our CPU is little endian we to use the byteswap function - also described later.
         message_length = std::byteswap(message_length);
@@ -52,10 +65,11 @@ int main() {
 
 
                 std::cout << "[SYSTEM EVENT] "
-                       << "Type: " << msg.message_type
+                        <<"Code: " << msg.event_code
                        << " | Locate: " << msg.locate
                        << " | Tracking: " << msg.tracking_number
                        << std::endl;
+
 
                 break;
 
@@ -82,6 +96,7 @@ int main() {
                             << " | Lot Size: " << msg.round_lot_size
                             << std::endl;
 
+                nasdaq_market.process_stock_directory(msg);
                 break;
 
             }
@@ -185,6 +200,8 @@ int main() {
                 msg.shares = std::byteswap(msg.shares);
                 msg.price = std::byteswap(msg.price);
                 uint64_t updated_timestamp = parse_6byte_timestamp(msg.timestamp);
+
+                nasdaq_market.process_add_order(msg);
                 break;
             }
             case 'F': {
@@ -211,6 +228,8 @@ int main() {
                 msg.executed_shares = std::byteswap(msg.executed_shares);
                 msg.match_number = std::byteswap(msg.match_number);
                 uint64_t updated_timestamp = parse_6byte_timestamp(msg.timestamp);
+
+                nasdaq_market.process_execute_order(msg);
                 break;
             }
             case 'C': {
@@ -237,6 +256,8 @@ int main() {
                 msg.order_reference_number = std::byteswap(msg.order_reference_number);
                 msg.canceled_shares = std::byteswap(msg.canceled_shares);
                 uint64_t updated_timestamp = parse_6byte_timestamp(msg.timestamp);
+
+                nasdaq_market.process_cancel_order(msg);
                 break;
             }
             case 'D': {
@@ -342,5 +363,14 @@ int main() {
         }
 
     }
+    auto end_time = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end_time - start_time;
 
+    std::cout << "\n[METRICS] Parse Complete." << std::endl;
+    std::cout << "Total Market Volume: " << nasdaq_market.get_total_volume() << " shares" << std::endl;
+    std::cout << "Total Messages: " << message_count << std::endl;
+    std::cout << "Time Elapsed: " << elapsed.count() << " seconds" << std::endl;
+    std::cout << "Throughput: " << (message_count / elapsed.count()) / 1000000.0 << " million msgs/sec" << std::endl;
+
+    return 0;
 }
