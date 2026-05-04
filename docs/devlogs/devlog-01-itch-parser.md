@@ -26,11 +26,13 @@ I decided to benchmark my Phase 1 parser on Linux to improve performance, and mo
 The resulting speedup from the OS switch ended up being more drastic than I expected.
 Code benchmarking results from start of parsing to end (using `std::chrono` printouts):
 * **Windows:** ~1236 / 1217 seconds (2 runs)
-* **Linux:** ~428 seconds (median over 5 runs)
+* **Linux:** ~410 seconds (median over 5 runs)
 
 Running the code natively on Linux stabilized the execution time and gave me more tools, like `perf`, to understand my system's bottlenecks.
 
-Results from the perf tool running 5 times:
+Results from the perf tool running 5 times (note that these results are start to end of program so longer then previous start to end of parsing):
+![img.png](img.png)
+
 
 ## Reflections & Next Steps
 Because this is Phase 1, I made some design choices that I already know are inefficient, but to understand the optimizations, I will start here and improve the performance step by step. Here is what I plan to fix in Phase 2:
