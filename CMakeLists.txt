@@ -17,4 +17,6 @@ add_executable(Nasdaq-itch-parser ${SOURCES}
         src/OrderBook.cpp
         include/Market.h
         src/Market.cpp
+        include/Parser.h
+        src/Parser.cpp
 )
