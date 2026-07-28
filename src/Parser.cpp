@@ -1,6 +1,6 @@
 #include "Parser.h"
+#include "MmapFile.h"
 #include <bit>
-#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -8,44 +8,39 @@
 #include "utils.h"
 
 void Parser::parse() {
-     //establish connection to the binary file - we can then use method read, this will take current byte/bytes load it into RAM.
-    std::ifstream file(filepath,std::ios::binary);
-
-    //check if connection was established correctly
-    if (!file.is_open()) {
-        std::cerr << "[ERROR] The provided path is incorrect: " << filepath << std::endl;
-        return ;
+    MmapFile mapped_file = MmapFile(filepath);
+    const char* current = mapped_file.get_start();
+    if (current==nullptr) {
+        std::cerr << "[ERROR] Opening the file failed" << std::endl;
+        return;
     }
-
+    const char* end = current+mapped_file.get_length();
 
     std::cout << "[SYSTEM] File opened successfully" << std::endl;
 
     message_count = 0;
     //Read the 2-byte length header first - specific to NASDAQ historical files
-    uint16_t message_length;
-    while (file.read(reinterpret_cast<char*>(&message_length),2)) {
+
+    while (current<end) {
         message_count++;
         if (message_count % 10000000 == 0) {
             std::cout << "[PROGRESS] Processed " << (message_count / 1000000) << " million messages..." << std::endl;
         }
-
+        uint16_t message_length = *reinterpret_cast<const uint16_t*>(current);
         // The length is big endian and our CPU is little endian we to use the byteswap function - also described later.
         message_length = std::byteswap(message_length);
 
         //Message type
         char message_type;
-        file.read(&message_type, 1);
+        message_type = current[2];
 
         switch (message_type) {
             case 'S': {
 
                 // in c++ we can step back "seek -1" from our current position
-                file.seekg(-1, std::ios::cur);
 
-                SystemEventMessage msg;
+                SystemEventMessage msg = *reinterpret_cast<const SystemEventMessage*>(current + 2);
 
-                // Take the address of message, and pretend it's just a pointer to raw chars not our struct
-                file.read(reinterpret_cast<char*>(&msg), sizeof(SystemEventMessage));
 
                 //We use std::byteswap instead of manual bit-shifting.
                 // The compiler translates this into a compiler intrinsic. This means CPU doesn't have to do math and
@@ -67,11 +62,7 @@ void Parser::parse() {
             }
             case 'R': {
 
-                file.seekg(-1, std::ios::cur);
-
-                StockDirectoryMessage msg;
-
-                file.read(reinterpret_cast<char*>(&msg), sizeof(StockDirectoryMessage));
+                StockDirectoryMessage msg = *reinterpret_cast<const StockDirectoryMessage*>(current + 2);
 
 
                 msg.locate = std::byteswap(msg.locate);
@@ -85,9 +76,7 @@ void Parser::parse() {
 
             }
             case 'H': {
-                file.seekg(-1, std::ios::cur);
-                StockTradingActionMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(StockTradingActionMessage));
+                StockTradingActionMessage msg = *reinterpret_cast<const StockTradingActionMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -95,9 +84,7 @@ void Parser::parse() {
                 break;
             }
             case 'Y': {
-                file.seekg(-1, std::ios::cur);
-                RegShoRestrictionMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(RegShoRestrictionMessage));
+                RegShoRestrictionMessage msg = *reinterpret_cast<const RegShoRestrictionMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -105,9 +92,7 @@ void Parser::parse() {
                 break;
             }
             case 'L': {
-                file.seekg(-1, std::ios::cur);
-                MarketParticipantPositionMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(MarketParticipantPositionMessage));
+                MarketParticipantPositionMessage msg = *reinterpret_cast<const MarketParticipantPositionMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -115,9 +100,7 @@ void Parser::parse() {
                 break;
             }
             case 'V': {
-                file.seekg(-1, std::ios::cur);
-                MwcbDeclineLevelMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(MwcbDeclineLevelMessage));
+                MwcbDeclineLevelMessage msg = *reinterpret_cast<const MwcbDeclineLevelMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -128,9 +111,7 @@ void Parser::parse() {
                 break;
             }
             case 'W': {
-                file.seekg(-1, std::ios::cur);
-                MwcbStatusMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(MwcbStatusMessage));
+                MwcbStatusMessage msg = *reinterpret_cast<const MwcbStatusMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -138,9 +119,7 @@ void Parser::parse() {
                 break;
             }
             case 'K': {
-                file.seekg(-1, std::ios::cur);
-                IpoQuotingPeriodUpdateMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(IpoQuotingPeriodUpdateMessage));
+                IpoQuotingPeriodUpdateMessage msg = *reinterpret_cast<const IpoQuotingPeriodUpdateMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -150,9 +129,7 @@ void Parser::parse() {
                 break;
             }
             case 'J': {
-                file.seekg(-1, std::ios::cur);
-                LuldAuctionCollarMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(LuldAuctionCollarMessage));
+                LuldAuctionCollarMessage msg = *reinterpret_cast<const LuldAuctionCollarMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -164,9 +141,7 @@ void Parser::parse() {
                 break;
             }
             case 'h': {
-                file.seekg(-1, std::ios::cur);
-                OperationalHaltMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(OperationalHaltMessage));
+                OperationalHaltMessage msg = *reinterpret_cast<const OperationalHaltMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -174,9 +149,7 @@ void Parser::parse() {
                 break;
             }
             case 'A': {
-                file.seekg(-1, std::ios::cur);
-                AddOrderMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(AddOrderMessage));
+                AddOrderMessage msg = *reinterpret_cast<const AddOrderMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -189,9 +162,7 @@ void Parser::parse() {
                 break;
             }
             case 'F': {
-                file.seekg(-1, std::ios::cur);
-                AddOrderMpidMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(AddOrderMpidMessage));
+                AddOrderMpidMessage msg = *reinterpret_cast<const AddOrderMpidMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -202,9 +173,7 @@ void Parser::parse() {
                 break;
             }
             case 'E': {
-                file.seekg(-1, std::ios::cur);
-                OrderExecutedMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(OrderExecutedMessage));
+                OrderExecutedMessage msg = *reinterpret_cast<const OrderExecutedMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -217,9 +186,7 @@ void Parser::parse() {
                 break;
             }
             case 'C': {
-                file.seekg(-1, std::ios::cur);
-                OrderExecutedWithPriceMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(OrderExecutedWithPriceMessage));
+                OrderExecutedWithPriceMessage msg = *reinterpret_cast<const OrderExecutedWithPriceMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -231,9 +198,7 @@ void Parser::parse() {
                 break;
             }
             case 'X': {
-                file.seekg(-1, std::ios::cur);
-                OrderCancelMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(OrderCancelMessage));
+                OrderCancelMessage msg = *reinterpret_cast<const OrderCancelMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -245,9 +210,7 @@ void Parser::parse() {
                 break;
             }
             case 'D': {
-                file.seekg(-1, std::ios::cur);
-                OrderDeleteMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(OrderDeleteMessage));
+                OrderDeleteMessage msg = *reinterpret_cast<const OrderDeleteMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -256,9 +219,7 @@ void Parser::parse() {
                 break;
             }
             case 'U': {
-                file.seekg(-1, std::ios::cur);
-                OrderReplaceMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(OrderReplaceMessage));
+                OrderReplaceMessage msg = *reinterpret_cast<const OrderReplaceMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -270,9 +231,7 @@ void Parser::parse() {
                 break;
             }
             case 'P': {
-                file.seekg(-1, std::ios::cur);
-                TradeMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(TradeMessage));
+                TradeMessage msg = *reinterpret_cast<const TradeMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -284,9 +243,7 @@ void Parser::parse() {
                 break;
             }
             case 'Q': {
-                file.seekg(-1, std::ios::cur);
-                CrossTradeMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(CrossTradeMessage));
+                CrossTradeMessage msg = *reinterpret_cast<const CrossTradeMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -297,9 +254,7 @@ void Parser::parse() {
                 break;
             }
             case 'B': {
-                file.seekg(-1, std::ios::cur);
-                BrokenTradeMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(BrokenTradeMessage));
+                BrokenTradeMessage msg = *reinterpret_cast<const BrokenTradeMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -308,9 +263,7 @@ void Parser::parse() {
                 break;
             }
             case 'I': {
-                file.seekg(-1, std::ios::cur);
-                NoiiMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(NoiiMessage));
+                NoiiMessage msg = *reinterpret_cast<const NoiiMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -323,9 +276,7 @@ void Parser::parse() {
                 break;
             }
             case 'O': {
-                file.seekg(-1, std::ios::cur);
-                DlcrMessage msg;
-                file.read(reinterpret_cast<char*>(&msg), sizeof(DlcrMessage));
+                DlcrMessage msg = *reinterpret_cast<const DlcrMessage*>(current + 2);
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
@@ -340,11 +291,11 @@ void Parser::parse() {
             }
 
             default: {
-                file.seekg(message_length - 1, std::ios::cur);
                 break;
             }
 
         }
+        current += 2+message_length;
 
     }
 
