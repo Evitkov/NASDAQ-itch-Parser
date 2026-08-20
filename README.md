@@ -2,12 +2,13 @@
 
 ## Motivation
 
-I built this project to deepen my practical understanding of C++ and software architecture by exploring a domain heavily connected to low-level systems programming: trading systems. Rather than getting bogged down in complex network protocols right away, this project focuses entirely on efficiently parsing binary market data (NASDAQ ITCH-50) and building a Limit Order Book (LOB) from the ground up. It serves as a hands-on environment to learn about memory layout, optimal data structure selection, hardware profiling (`perf`), and low-level performance tuning.
+I built this project to dive deep into C++ systems programming and low-level performance optimization. Instead of tackling complex networking right away, I wanted to focus on the core mechanics of high-throughput data processing by building a NASDAQ ITCH-50 parser and a Limit Order Book (LOB) from scratch. It is a practical playground for exploring memory layouts, data structure trade-offs, and hardware bottlenecks without relying on heavy external frameworks.
 
 ## Architecture
 
-The engine operates offline as a deterministic simulation of an exchange feed, reading historical market data directly from a local binary file. It is designed to be cross-platform, utilizing OS-specific system calls for both Windows and Linux to achieve maximum I/O performance.
+The engine runs offline as a deterministic simulation, processing historical market data from a local binary file. It is built to be cross-platform, using OS-specific system calls for both Windows and Linux to handle heavy I/O efficiently.
 
+```text
 Engine/
 ├── data/                    # Market data files (e.g., bin files)
 ├── docs/                    # Project documentation
@@ -27,51 +28,60 @@ Engine/
 │   ├── OrderBook.cpp        # Limit Order Book implementation
 │   └── Parser.cpp           # Parsing logic and iteration
 └── CMakeLists.txt           # Root build configuration
+```
 
-## The Interesting Parts
+## Implementation & Evolution (Devlogs)
 
-### Zero-Copy File I/O (`mmap` & `MapViewOfFile`)
-Initially, the parser relied on standard `std::ifstream::read()` calls, which created a massive disk I/O bottleneck due to constant kernel context switches. To resolve this, the engine now uses memory mapping (`mmap` on Linux, `MapViewOfFile` on Windows) via `#ifdef` abstractions encapsulated in `MmapFile`. The entire binary file is mapped directly into the virtual address space.
+### Phase 1: Baseline Architecture & The OS Shift
+In the initial phase, I set up the core pipeline: a parser to decode binary messages, a `Market` class to manage tickers via a pre-allocated vector indexed by integer locate codes, and an order book utilizing `std::unordered_map` for orders and `std::map` for price levels.
 
-### In-Place Parsing and Pointer Arithmetic
-By mapping the file, the data is treated as one continuous array in RAM. The parsing loop simply uses pointer arithmetic (`ptr += message_length`) to jump between packets. By using strict memory layouts and `#pragma pack`, C++ structs are overlaid directly onto the raw memory buffer using `reinterpret_cast`. Endianness (converting NASDAQ's big-endian to little-endian) is handled efficiently using `std::byteswap` to leverage dedicated hardware instructions. This completely eliminates intermediate buffers, dynamic allocation, and `memcpy` overhead.
+Initially benchmarking on Windows with standard `std::ifstream::read()`, the parser took over 1,200 seconds. Moving the benchmark to Linux with `g++ -O3` dropped that down to ~410 seconds, providing a stable baseline and allowing me to use `perf` to inspect hardware metrics.
 
-### Market and Limit Order Book (LOB)
-* **Market Directory:** To avoid slow string lookups for stock tickers, the `Market` class uses a statically sized `std::vector` (pre-allocated using `constexpr` for ~10,000 tickers) indexed directly by their integer `locate` code.
-* **Order Book (Current Baseline):** Currently, the book relies on `std::map` (Red-Black Tree) to keep price levels sorted and `std::unordered_map` for O(1) order lookups. While functionally correct, hardware profiling has revealed that these node-based containers are the current primary bottleneck.
+### Phase 2: Zero-Copy File I/O via Memory Mapping (`mmap`)
+To eliminate the heavy kernel context switches and double-copying caused by `ifstream`, I implemented memory mapping (`mmap` on Linux, `MapViewOfFile` on Windows) wrapped in a clean cross-platform interface (`MmapFile`).
 
-### Hardware Profiling & Cross-Platform Metrics
-Dual-booting and testing on both Windows and Linux revealed massive performance shifts. Upgrading to memory-mapped I/O dropped parsing time drastically on both platforms (e.g., Linux execution dropped from ~410s to ~126s) and nearly eliminated the OS-level performance gap. However, Linux `perf` metrics reveal that the CPU now suffers from a ~62.3% cache miss rate and a low 0.19 Instructions Per Cycle (IPC), indicating the CPU is starved waiting for RAM fetches caused by the standard library's node allocations.
+Treating the file as a continuous block of memory allowed me to ditch intermediate buffers entirely. The parser now uses simple pointer arithmetic (`ptr += message_length`) and casts structs directly over the raw memory (`reinterpret_cast`). Endianness conversion from big-endian to little-endian leverages `std::byteswap` to generate optimal hardware instructions.
+
+This dropped execution times drastically:
+* **Windows:** ~1236s ➔ ~140s
+* **Linux:** ~410s ➔ ~126s (with `perf` runtime around ~153s)
+
+### Hardware Profiling Insights
+While memory mapping solved the I/O bottleneck, running Linux `perf` on Phase 2 revealed a new, deeper performance wall:
+* **Low IPC (~0.19):** The CPU spends a massive amount of cycles stalled.
+* **High Cache Miss Rate (~62.3%):** Out of ~10.6 billion references, about 6.6 billion missed the cache.
+
+The drop in IPC and spike in cache misses aren't regressions; rather, eliminating the bulky, predictable memory-copying loops of Phase 1 exposed the true bottleneck: the node-based standard containers (`std::map` and `std::unordered_map`). Every insertion or lookup triggers pointer chasing across random heap memory, starving the CPU while it waits on RAM fetches.
 
 ## Tech Stack
 
 * **Language:** C++20
-* **Platform:** Linux (GCC) & Windows (MSVC)
+* **Platforms:** Linux (GCC) & Windows (MSVC)
 * **Build System:** CMake
-* **Core Mechanisms:** Zero-copy memory mapping (`mmap`), packed structs, pointer arithmetic, hardware profiling (`perf`).
+* **Core Mechanisms:** Zero-copy memory mapping, packed structs, custom `#ifdef` OS abstractions, hardware profiling (`perf`).
 
 ## Building
 
-The project is configured to build on both Linux and Windows using CMake.
-
-# Create the build directory and configure the project (cross-platform)
+```bash
+# Configure the project in Release mode (cross-platform)
 cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
 
-# Compile the project in Release mode for optimal performance
+# Compile the engine
 cmake --build build --config Release
+```
 
 ## Running the Simulation
 
-To run the simulation, the engine requires a binary market data file (e.g., a NASDAQ ITCH-50 `.bin` file).
-
 **On Linux:**
+```bash
 ./build/engine data/market_data.bin
+```
 
 **On Windows:**
+```cmd
 .\build\Release\engine.exe data\market_data.bin
+```
 
-As the simulation processes the file, the engine outputs periodic telemetry regarding parsing throughput and the current state of the order book.
+## Next Phases
 
-## Future Phases
-
-The memory mapping implementation successfully eliminated the disk I/O bottleneck, but hardware profiling has exposed standard library data structures as the new bottleneck. The next phase of development will focus entirely on **Cache Optimization**. I plan to replace the node-based `std::map` and `std::unordered_map` with cache-friendly, contiguous memory data structures (such as flat arrays or custom B-Trees) to reduce pointer chasing, drastically lower the 62.3% cache miss rate, and improve the overall IPC.
+Now that disk I/O is completely bypassed and memory mapping is stable, the next phase will focus entirely on **Cache Optimization**. I plan to replace the node-based standard library containers with cache-friendly, contiguous data structures.
