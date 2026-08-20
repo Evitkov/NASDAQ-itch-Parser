@@ -10,7 +10,7 @@ The engine runs offline as a deterministic simulation, processing historical mar
 
 ```text
 Engine/
-├── data/                    # Market data files (e.g., bin files)
+├── data/                    # Market data files (e.g., ITCH-50 .bin files)
 ├── docs/                    # Project documentation
 │   ├── devlogs/             # Formal architectural decision records & images
 │   └── field_notes/         # Unfiltered implementation insights and learnings
@@ -72,15 +72,31 @@ cmake --build build --config Release
 
 ## Running the Simulation
 
+The input data file path is currently hardcoded in `src/main.cpp`:
+
+```cpp
+std::string filepath = "../data/08302019.NASDAQ_ITCH50";
+```
+
+This is a **relative path resolved against the working directory the binary is launched from**, so:
+
+* Place your ITCH-50 data file at `data/08302019.NASDAQ_ITCH50` in the project root.
+* Run the executable from inside `build/` (or your IDE's build/run output directory) so that `../data/` correctly resolves up to the project root.
+* If you use a different data file, update the `filepath` string in `main.cpp` accordingly and rebuild.
+
 **On Linux:**
 ```bash
-./build/engine data/market_data.bin
+cd build
+./engine
 ```
 
 **On Windows:**
 ```cmd
-.\build\Release\engine.exe data\market_data.bin
+cd build\Release
+engine.exe
 ```
+
+**Running from an IDE:** set the run configuration's working directory to the `build` (or `build/Release`) folder — not the project root — otherwise the hardcoded `../data/...` path will fail to resolve.
 
 ## Next Phases
 
