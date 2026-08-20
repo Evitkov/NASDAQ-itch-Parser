@@ -1,77 +1,77 @@
-# Trading Engine: Stage 1 (Order Book & File Simulation)
+# Trading Engine: Core Parser & Memory-Mapped Simulation
 
 ## Motivation
 
-I built this project to deepen my practical understanding of C++ and software architecture by exploring a domain I find interesting and very connected to low level concepts: trading systems. Instead of getting bogged down in complex network programming right away, I wanted to start with the core mechanics. This first stage focuses entirely on efficiently parsing market data and building a high-performance Limit Order Book (LOB) from the ground up. It has been a hands-on way to learn about memory layout, optimal data structure selection, and low-level performance tuning without relying on heavy external frameworks.
+I built this project to deepen my practical understanding of C++ and software architecture by exploring a domain heavily connected to low-level systems programming: trading systems. Rather than getting bogged down in complex network protocols right away, this project focuses entirely on efficiently parsing binary market data (NASDAQ ITCH-50) and building a Limit Order Book (LOB) from the ground up. It serves as a hands-on environment to learn about memory layout, optimal data structure selection, hardware profiling (`perf`), and low-level performance tuning.
 
 ## Architecture
 
-This initial stage operates offline within a Windows environment. Rather than ingesting live network packets, the engine reads historical market data directly from a local binary file, acting as a deterministic simulation of an exchange feed.
+The engine operates offline as a deterministic simulation of an exchange feed, reading historical market data directly from a local binary file. It is designed to be cross-platform, utilizing OS-specific system calls for both Windows and Linux to achieve maximum I/O performance.
 
-```text
 Engine/
-├── engine/                  # Core application logic
-│   ├── main.cpp             # Application entry point and file simulation loop
-│   ├── Parser.hpp           # Market data file parser and deserializer
-│   ├── Order_Book.cpp/hpp   # Limit Order Book (LOB) implementation
-├── common/                  # Shared data structures and definitions
-│   ├── Messages.hpp         # Packed message structs matching the data format
-│   └── Types.hpp            # Order and PriceLevel cache-friendly layouts
-├── Docs/                    # Project documentation
-│   ├── devlogs/             # Formal architectural decision records
+├── data/                    # Market data files (e.g., bin files)
+├── docs/                    # Project documentation
+│   ├── devlogs/             # Formal architectural decision records & images
 │   └── field_notes/         # Unfiltered implementation insights and learnings
+├── include/                 # Header files
+│   ├── Market.h             # Stock directory management definitions
+│   ├── messages.h           # Packed message structs matching ITCH-50 format
+│   ├── MmapFile.h           # Cross-platform memory mapping abstraction
+│   ├── OrderBook.h          # Limit Order Book definitions
+│   ├── Parser.h             # Memory-mapped file parser header
+│   └── utils.h              # Shared utilities
+├── src/                     # Source files
+│   ├── main.cpp             # Application entry point and simulation loop
+│   ├── Market.cpp           # Stock directory management implementation
+│   ├── MmapFile.cpp         # Cross-platform memory mapping implementation
+│   ├── OrderBook.cpp        # Limit Order Book implementation
+│   └── Parser.cpp           # Parsing logic and iteration
 └── CMakeLists.txt           # Root build configuration
-```
 
 ## The Interesting Parts
 
-### Zero-Allocation Parsing
+### Zero-Copy File I/O (`mmap` & `MapViewOfFile`)
+Initially, the parser relied on standard `std::ifstream::read()` calls, which created a massive disk I/O bottleneck due to constant kernel context switches. To resolve this, the engine now uses memory mapping (`mmap` on Linux, `MapViewOfFile` on Windows) via `#ifdef` abstractions encapsulated in `MmapFile`. The entire binary file is mapped directly into the virtual address space.
 
-Even though we are reading from a file instead of a network socket, the parsing philosophy remains zero-copy where possible. Large chunks of the binary market data file are read into a memory buffer. Instead of deserializing these bytes into new objects, I overlay tightly packed C++ structs directly onto the buffer using `reinterpret_cast`. By enforcing strict memory layouts with compiler directives (like `#pragma pack`), the CPU knows exactly how to read the fields at a given address. This completely eliminates dynamic allocation and `memcpy` overhead during the critical parsing loop.
+### In-Place Parsing and Pointer Arithmetic
+By mapping the file, the data is treated as one continuous array in RAM. The parsing loop simply uses pointer arithmetic (`ptr += message_length`) to jump between packets. By using strict memory layouts and `#pragma pack`, C++ structs are overlaid directly onto the raw memory buffer using `reinterpret_cast`. Endianness (converting NASDAQ's big-endian to little-endian) is handled efficiently using `std::byteswap` to leverage dedicated hardware instructions. This completely eliminates intermediate buffers, dynamic allocation, and `memcpy` overhead.
 
-### The Limit Order Book (LOB) Architecture
+### Market and Limit Order Book (LOB)
+* **Market Directory:** To avoid slow string lookups for stock tickers, the `Market` class uses a statically sized `std::vector` (pre-allocated using `constexpr` for ~10,000 tickers) indexed directly by their integer `locate` code.
+* **Order Book (Current Baseline):** Currently, the book relies on `std::map` (Red-Black Tree) to keep price levels sorted and `std::unordered_map` for O(1) order lookups. While functionally correct, hardware profiling has revealed that these node-based containers are the current primary bottleneck.
 
-The heart of the simulation is the Order Book. It needs to reflect the current state of the market with extreme efficiency. The internal structures are designed to keep the "hot" operations as fast as possible:
-* **Price Levels:** Maintained in a Red-Black Tree (`std::map`). Because price levels naturally need to be sorted (e.g., to quickly find the best bid or ask), the tree structure guarantees the top of the book is always immediately accessible.
-* **Order Tracking:** Stored in a `std::list` to maintain strict FIFO time priority.
-* **O(1) Lookups:** To handle rapid order modifications and cancellations, the engine maintains a `std::unordered_map` linking an Order ID directly to its memory location. This means a cancel message triggers a direct pointer dereference rather than a costly search through the book.
-
-### Deterministic File Simulation
-
-By driving the engine purely from a binary file rather than a live network interface, the system becomes entirely deterministic. Time in the engine is not governed by the system clock, but by the timestamps stamped on the parsed messages. This allows for highly reproducible profiling and debugging on Windows, letting me measure the exact CPU cycles required for specific order book operations without network jitter skewing the results.
+### Hardware Profiling & Cross-Platform Metrics
+Dual-booting and testing on both Windows and Linux revealed massive performance shifts. Upgrading to memory-mapped I/O dropped parsing time drastically on both platforms (e.g., Linux execution dropped from ~410s to ~126s) and nearly eliminated the OS-level performance gap. However, Linux `perf` metrics reveal that the CPU now suffers from a ~62.3% cache miss rate and a low 0.19 Instructions Per Cycle (IPC), indicating the CPU is starved waiting for RAM fetches caused by the standard library's node allocations.
 
 ## Tech Stack
 
 * **Language:** C++20
-* **Platform:** Windows (MSVC)
+* **Platform:** Linux (GCC) & Windows (MSVC)
 * **Build System:** CMake
-* **Core Mechanisms:** Binary file I/O, packed structs, customized standard library containers.
+* **Core Mechanisms:** Zero-copy memory mapping (`mmap`), packed structs, pointer arithmetic, hardware profiling (`perf`).
 
 ## Building
 
-The project is configured to be built easily on Windows using CMake and a compatible compiler like MSVC.
+The project is configured to build on both Linux and Windows using CMake.
 
-```cmd
-# Create the build directory and configure the project
-cmake -B build -S .
+# Create the build directory and configure the project (cross-platform)
+cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
 
 # Compile the project in Release mode for optimal performance
 cmake --build build --config Release
-```
 
-## Running and Simulation
+## Running the Simulation
 
-To run the simulation, the engine requires a binary market data file. The application reads this file sequentially, processing each message to reconstruct and update the Limit Order Book in memory.
+To run the simulation, the engine requires a binary market data file (e.g., a NASDAQ ITCH-50 `.bin` file).
 
-```cmd
-# Run the compiled executable, passing the path to the data file
-.\build\Release\engine.exe path\to\market_data.bin
-```
+**On Linux:**
+./build/engine data/market_data.bin
 
-As the simulation processes the file, the engine outputs periodic telemetry regarding parsing throughput (messages per second) and the current depth of the order book.
+**On Windows:**
+.\build\Release\engine.exe data\market_data.bin
 
-## Documentation
+As the simulation processes the file, the engine outputs periodic telemetry regarding parsing throughput and the current state of the order book.
 
-The `Docs/` directory contains all project documentation, split into two distinct categories:
-* **devlogs/:** Formal records of major architectural decisions. This includes the reasoning behind specific data structure choices for the LOB and structural design patterns.
-* **field_notes/:** Informal scratchpads, learnings, and observations made during development. This covers nuances of C++20, file I/O performance traits on Windows, and raw benchmarking thoughts.
+## Future Phases
+
+The memory mapping implementation successfully eliminated the disk I/O bottleneck, but hardware profiling has exposed standard library data structures as the new bottleneck. The next phase of development will focus entirely on **Cache Optimization**. I plan to replace the node-based `std::map` and `std::unordered_map` with cache-friendly, contiguous memory data structures (such as flat arrays or custom B-Trees) to reduce pointer chasing, drastically lower the 62.3% cache miss rate, and improve the overall IPC.
