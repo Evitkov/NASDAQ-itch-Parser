@@ -8,7 +8,7 @@ I built this project to dive deep into C++ systems programming and low-level per
 
 The engine runs offline as a deterministic simulation, processing historical market data from a local binary file. It is built to be cross-platform, using OS-specific system calls for both Windows and Linux to handle heavy I/O efficiently.
 
-```text
+~~~text
 Engine/
 ├── data/                    # Market data files (e.g., ITCH-50 .bin files)
 ├── docs/                    # Project documentation
@@ -28,7 +28,7 @@ Engine/
 │   ├── OrderBook.cpp        # Limit Order Book implementation
 │   └── Parser.cpp           # Parsing logic and iteration
 └── CMakeLists.txt           # Root build configuration
-```
+~~~
 
 ## Implementation & Evolution (Devlogs)
 
@@ -62,41 +62,32 @@ The drop in IPC and spike in cache misses aren't regressions; rather, eliminatin
 
 ## Building
 
-```bash
+~~~bash
 # Configure the project in Release mode (cross-platform)
 cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
 
 # Compile the engine
 cmake --build build --config Release
-```
+~~~
 
 ## Running the Simulation
 
-The input data file path is currently hardcoded in `src/main.cpp`:
-
-```cpp
-std::string filepath = "../data/08302019.NASDAQ_ITCH50";
-```
-
-This is a **relative path resolved against the working directory the binary is launched from**, so:
-
-* Place your ITCH-50 data file at `data/08302019.NASDAQ_ITCH50` in the project root.
-* Run the executable from inside `build/` (or your IDE's build/run output directory) so that `../data/` correctly resolves up to the project root.
-* If you use a different data file, update the `filepath` string in `main.cpp` accordingly and rebuild.
+The engine accepts the path to the market data file as a command-line argument. You can provide any valid absolute or relative path to any of your ITCH-50 file.
 
 **On Linux:**
-```bash
+~~~bash
 cd build
-./engine
-```
+./engine /path/to/your/market_data_file.bin
+~~~
 
 **On Windows:**
-```cmd
+~~~cmd
 cd build\Release
-engine.exe
-```
+engine.exe C:\path\to\your\market_data_file.bin
+~~~
 
-**Running from an IDE:** set the run configuration's working directory to the `build` (or `build/Release`) folder — not the project root — otherwise the hardcoded `../data/...` path will fail to resolve.
+### Fallback Default
+If you run the executable without any arguments, it will safely fall back to checking a hardcoded relative path (`../data/08302019.NASDAQ_ITCH50`).
 
 ## Next Phases
 
