@@ -13,3 +13,13 @@ inline uint64_t parse_6byte_timestamp(const uint8_t ts[6]) {
            (static_cast<uint64_t>(ts[4]) << 8)  |
            static_cast<uint64_t>(ts[5]);
 }
+//splitmix64 hash function used for 64bit ints
+inline uint64_t splitmix64_hash(uint64_t key) {
+    uint64_t x = key;
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9ULL;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebULL;
+    x ^= x >> 31;
+    return x;
+}

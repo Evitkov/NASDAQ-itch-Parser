@@ -3,6 +3,16 @@
 
 #pragma pack(push, 1) // Disable padding so we can parse sequential bytes
 
+struct ActiveOrder {
+    uint64_t order_reference_number{0};
+    uint32_t shares{0};
+    uint32_t price{0};
+    uint16_t locate{0};
+    char buy_sell_indicator{' '};
+    bool occupied{false};
+    uint16_t dib{0};
+};
+
 // System Event Message ('S')
 struct SystemEventMessage {
     char message_type;
