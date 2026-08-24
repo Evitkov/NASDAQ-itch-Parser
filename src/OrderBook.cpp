@@ -11,9 +11,11 @@ void OrderBook::process_add_order(const AddOrderMessage &msg) {
     orders.insert(order);
 
     current_orders++;
+    /*
     if (current_orders > peak_orders) {
         peak_orders = current_orders;
     }
+    */
 
     if (msg.buy_sell_indicator == 'B') {
         bids.add(msg.price, msg.shares);
