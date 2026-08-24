@@ -1,94 +1,78 @@
-# Trading Engine: Core Parser & Memory-Mapped Simulation
+# NASDAQ ITCH 5.0 Parser
 
-## Motivation
+## Overview
+This project is a high-performance C++ parser and order book engine for the NASDAQ ITCH 5.0 market data protocol. It is designed to process hundreds of millions of historical market messages with minimal latency, reconstructing the limit order book for active equities.
 
-I built this project to dive deep into C++ systems programming and low-level performance optimization. Instead of tackling complex networking right away, I wanted to focus on the core mechanics of high-throughput data processing by building a NASDAQ ITCH-50 parser and a Limit Order Book (LOB) from scratch. It is a practical playground for exploring memory layouts, data structure trade-offs, and hardware bottlenecks without relying on heavy external frameworks.
+The project focuses on system-level optimizations, memory alignment, and CPU cache efficiency, demonstrating how algorithmic choices interact with underlying silicon.
 
-## Architecture
+## Project Architecture
+The codebase is divided into headers and source files, utilizing standard C++ and CMake.
 
-The engine runs offline as a deterministic simulation, processing historical market data from a local binary file. It is built to be cross-platform, using OS-specific system calls for both Windows and Linux to handle heavy I/O efficiently.
+```text
+├── include/
+│   ├── FlatHashMap.h
+│   ├── Market.h
+│   ├── messages.h
+│   ├── MmapFile.h
+│   ├── OrderBook.h
+│   ├── Parser.h
+│   ├── PriceLevelBook.h
+│   └── utils.h
+├── src/
+│   ├── FlatHashMap.cpp
+│   ├── main.cpp
+│   ├── Market.cpp
+│   ├── MmapFile.cpp
+│   ├── OrderBook.cpp
+│   └── Parser.cpp
+├── .gitignore
+└── CMakeLists.txt
+```
 
-~~~text
-Engine/
-├── data/                    # Market data files (e.g., ITCH-50 .bin files)
-├── docs/                    # Project documentation
-│   ├── devlogs/             # Formal architectural decision records & images
-│   └── field_notes/         # Unfiltered implementation insights and learnings
-├── include/                 # Header files
-│   ├── Market.h             # Stock directory management definitions
-│   ├── messages.h           # Packed message structs matching ITCH-50 format
-│   ├── MmapFile.h           # Cross-platform memory mapping abstraction
-│   ├── OrderBook.h          # Limit Order Book definitions
-│   ├── Parser.h             # Memory-mapped file parser header
-│   └── utils.h              # Shared utilities
-├── src/                     # Source files
-│   ├── main.cpp             # Application entry point and simulation loop
-│   ├── Market.cpp           # Stock directory management implementation
-│   ├── MmapFile.cpp         # Cross-platform memory mapping implementation
-│   ├── OrderBook.cpp        # Limit Order Book implementation
-│   └── Parser.cpp           # Parsing logic and iteration
-└── CMakeLists.txt           # Root build configuration
-~~~
+## Requirements
+* C++17 or higher
+* CMake 3.10+
+* A compatible compiler (GCC, Clang, or MSVC)
+* Supported OS: Linux or Windows
 
-## Implementation & Evolution (Devlogs)
+## Building the Project
+To compile the project with CMake, run the following commands in the root directory:
 
-### Phase 1: Baseline Architecture & The OS Shift
-In the initial phase, I set up the core pipeline: a parser to decode binary messages, a `Market` class to manage tickers via a pre-allocated vector indexed by integer locate codes, and an order book utilizing `std::unordered_map` for orders and `std::map` for price levels.
-
-Initially benchmarking on Windows with standard `std::ifstream::read()`, the parser took over 1,200 seconds. Moving the benchmark to Linux with `g++ -O3` dropped that down to ~410 seconds, providing a stable baseline and allowing me to use `perf` to inspect hardware metrics.
-
-### Phase 2: Zero-Copy File I/O via Memory Mapping (`mmap`)
-To eliminate the heavy kernel context switches and double-copying caused by `ifstream`, I implemented memory mapping (`mmap` on Linux, `MapViewOfFile` on Windows) wrapped in a clean cross-platform interface (`MmapFile`).
-
-Treating the file as a continuous block of memory allowed me to ditch intermediate buffers entirely. The parser now uses simple pointer arithmetic (`ptr += message_length`) and casts structs directly over the raw memory (`reinterpret_cast`). Endianness conversion from big-endian to little-endian leverages `std::byteswap` to generate optimal hardware instructions.
-
-This dropped execution times drastically:
-* **Windows:** ~1236s ➔ ~140s
-* **Linux:** ~410s ➔ ~126s (with `perf` runtime around ~153s)
-
-### Hardware Profiling Insights
-While memory mapping solved the I/O bottleneck, running Linux `perf` on Phase 2 revealed a new, deeper performance wall:
-* **Low IPC (~0.19):** The CPU spends a massive amount of cycles stalled.
-* **High Cache Miss Rate (~62.3%):** Out of ~10.6 billion references, about 6.6 billion missed the cache.
-
-The drop in IPC and spike in cache misses aren't regressions; rather, eliminating the bulky, predictable memory-copying loops of Phase 1 exposed the true bottleneck: the node-based standard containers (`std::map` and `std::unordered_map`). Every insertion or lookup triggers pointer chasing across random heap memory, starving the CPU while it waits on RAM fetches.
-
-## Tech Stack
-
-* **Language:** C++20
-* **Platforms:** Linux (GCC) & Windows (MSVC)
-* **Build System:** CMake
-* **Core Mechanisms:** Zero-copy memory mapping, packed structs, custom `#ifdef` OS abstractions, hardware profiling (`perf`).
-
-## Building
-
-~~~bash
-# Configure the project in Release mode (cross-platform)
-cmake -B build -DCMAKE_BUILD_TYPE=Release -S .
-
-# Compile the engine
-cmake --build build --config Release
-~~~
-
-## Running the Simulation
-
-The engine accepts the path to the market data file as a command-line argument. You can provide any valid absolute or relative path to any of your ITCH-50 file.
-
-**On Linux:**
-~~~bash
+```bash
+mkdir build
 cd build
-./engine /path/to/your/market_data_file.bin
-~~~
+cmake ..
+cmake --build . --config Release
+```
+*(Note: Always build in `Release` mode to ensure maximum execution speed and compiler optimizations).*
 
-**On Windows:**
-~~~cmd
-cd build\Release
-engine.exe C:\path\to\your\market_data_file.bin
-~~~
+## Usage
+To run the parser, provide the path to the uncompressed NASDAQ ITCH 5.0 binary file:
 
-### Fallback Default
-If you run the executable without any arguments, it will safely fall back to checking a hardcoded relative path (`../data/08302019.NASDAQ_ITCH50`).
+```bash
+./Nasdaq-itch-parser ../data/08302019.NASDAQ_ITCH50
+```
 
-## Next Phases
+## Development Phases
 
-Now that disk I/O is completely bypassed and memory mapping is stable, the next phase will focus entirely on **Cache Optimization**. I plan to replace the node-based standard library containers with cache-friendly, contiguous data structures.
+### Phase 1: Basic Implementation
+The initial phase focused on correctly parsing the binary ITCH 5.0 messages and building a functional order book. Data was read from disk using standard `std::ifstream::read()` calls, and order state was maintained using standard library containers (`std::unordered_map` for the global order directory and `std::map` for the price levels). While accurate, this approach was bottlenecked by disk I/O and dynamic memory allocations.
+
+### Phase 2.1: Zero-Copy File I/O with Memory Mapping
+To eliminate disk I/O bottlenecks, standard read operations were replaced with memory mapping (`mmap` on Linux, `MapViewOfFile` on Windows).
+* The entire 10GB binary file is mapped directly into the process's virtual address space.
+* The OS handles paging data from the SSD into RAM.
+* Memory is treated as a continuous array, allowing for in-place parsing using pointer arithmetic (`reinterpret_cast`) without intermediate buffers.
+
+This bypassed OS kernel overhead in the main parsing loop, dropping execution time from ~410s to ~126s on Linux, and from ~1236s to ~140s on Windows.
+
+### Phase 2.2: Custom Data Structures and Hardware Optimization
+Profiling with Linux `perf` revealed that while disk I/O was solved, CPU cache misses and high instruction counts were the new bottlenecks. The standard library node-based containers caused significant pointer chasing and memory fragmentation.
+
+* **PriceLevelBook:** Replaced `std::map` with a custom order book backed by a continuous `std::vector`. Based on dataset profiling (90th percentile depth of 245 levels), the vector reserves 256 slots by default. This guarantees contiguous memory and zero reallocation overhead for the vast majority of the market. Insertions and deletions use binary search (`std::lower_bound`) to maintain a perfectly sorted array.
+* **FlatHashMap:** Replaced `std::unordered_map` with a custom open-addressing hash map. To solve data clustering, it implements Robin Hood hashing (tracking Distance to Initial Bucket, or DIB). Because Robin Hood hashing supports a high load factor (~90%), the map pre-allocates 170 million slots to handle the entire daily order volume with zero dynamic resizing.
+
+By replacing node-based allocations with contiguous memory structures, the total instruction count dropped by more than half. The parser now executes in ~48.6s on Linux and ~59s on Windows.
+
+## Next Steps
+The custom data structures successfully resolved the memory access bottlenecks. In the next phase, the project will simulate a network stack. This will deviate slightly from the current local-file processing architecture, but it is necessary to accurately reflect how live trading systems receive and process UDP multicast packets in production.
