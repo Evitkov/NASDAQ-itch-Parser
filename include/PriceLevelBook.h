@@ -12,12 +12,12 @@ struct PriceLevel {
 
 class PriceLevelBook {
 public:
-    inline static std::vector<PriceLevelBook*> all_books;
-    inline size_t current_size() const { return prices.size(); }
-    inline static size_t max_observed_levels = 0;
+    //inline static std::vector<PriceLevelBook*> all_books;
+    //inline size_t current_size() const { return prices.size(); }
+    //inline static size_t max_observed_levels = 0;
     PriceLevelBook() {
         prices.reserve(256);
-        all_books.push_back(this);
+        //all_books.push_back(this);
     }
 
     inline void add(uint32_t price, uint32_t shares) {

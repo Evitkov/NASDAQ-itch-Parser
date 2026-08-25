@@ -7,73 +7,64 @@
 #include "messages.h"
 #include "utils.h"
 
+// Compiletime switch
+constexpr bool ENABLE_PARSER_LOGS = false;
+
 void Parser::parse() {
     MmapFile mapped_file = MmapFile(filepath);
     const char* current = mapped_file.get_start();
-    if (current==nullptr) {
-        std::cerr << "[ERROR] Opening the file failed" << std::endl;
+    if (current == nullptr) {
+        std::cerr << "[ERROR] Opening the file failed\n";
         return;
     }
-    const char* end = current+mapped_file.get_length();
+    const char* end = current + mapped_file.get_length();
 
-    std::cout << "[SYSTEM] File opened successfully" << std::endl;
+    std::cout << "[SYSTEM] File opened successfully\n";
 
     message_count = 0;
-    //Read the 2-byte length header first - specific to NASDAQ historical files
 
-    while (current<end) {
+    while (current < end) {
         message_count++;
-        if (message_count % 10000000 == 0) {
-            std::cout << "[PROGRESS] Processed " << (message_count / 1000000) << " million messages..." << std::endl;
+
+        if constexpr (ENABLE_PARSER_LOGS) {
+            if (message_count % 10000000 == 0) {
+                std::cout << "[PROGRESS] Processed " << (message_count / 1000000) << " million messages...\n";
+            }
         }
+
         uint16_t message_length = *reinterpret_cast<const uint16_t*>(current);
-        // The length is big endian and our CPU is little endian we to use the byteswap function - also described later.
         message_length = std::byteswap(message_length);
 
-        //Message type
-        char message_type;
-        message_type = current[2];
+        char message_type = current[2];
 
         switch (message_type) {
             case 'S': {
-
-                // in c++ we can step back "seek -1" from our current position
-
                 SystemEventMessage msg = *reinterpret_cast<const SystemEventMessage*>(current + 2);
 
-
-                //We use std::byteswap instead of manual bit-shifting.
-                // The compiler translates this into a compiler intrinsic. This means CPU doesn't have to do math and
-                // this triggers a dedicated hardware instruction
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
                 uint64_t updated_timestamp = parse_6byte_timestamp(msg.timestamp);
 
-
-                std::cout << "[SYSTEM EVENT] "
-                        <<"Code: " << msg.event_code
-                       << " | Locate: " << msg.locate
-                       << " | Tracking: " << msg.tracking_number
-                       << std::endl;
-
-
+                if constexpr (ENABLE_PARSER_LOGS) {
+                    std::cout << "[SYSTEM EVENT] "
+                              << "Code: " << msg.event_code
+                              << " | Locate: " << msg.locate
+                              << " | Tracking: " << msg.tracking_number
+                              << '\n';
+                }
                 break;
-
             }
             case 'R': {
-
                 StockDirectoryMessage msg = *reinterpret_cast<const StockDirectoryMessage*>(current + 2);
-
 
                 msg.locate = std::byteswap(msg.locate);
                 msg.tracking_number = std::byteswap(msg.tracking_number);
-                msg.round_lot_size=std::byteswap(msg.round_lot_size);
-                msg.etp_leverage_factor=std::byteswap(msg.etp_leverage_factor);
+                msg.round_lot_size = std::byteswap(msg.round_lot_size);
+                msg.etp_leverage_factor = std::byteswap(msg.etp_leverage_factor);
                 uint64_t updated_timestamp = parse_6byte_timestamp(msg.timestamp);
 
                 market.process_stock_directory(msg);
                 break;
-
             }
             case 'H': {
                 StockTradingActionMessage msg = *reinterpret_cast<const StockTradingActionMessage*>(current + 2);
@@ -289,19 +280,13 @@ void Parser::parse() {
                 uint64_t updated_timestamp = parse_6byte_timestamp(msg.timestamp);
                 break;
             }
-
             default: {
                 break;
             }
-
         }
-        current += 2+message_length;
-
+        current += 2 + message_length;
     }
-
 }
-
-
 
 uint64_t Parser::get_message_count() {
     return message_count;

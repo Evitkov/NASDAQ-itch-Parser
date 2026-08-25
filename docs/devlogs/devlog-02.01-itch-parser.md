@@ -1,7 +1,9 @@
 # Devlog #2.1: Zero-Copy File I/O with Memory Mapping (Phase 2)
 
 ## Introduction
-After I finished the basic implementation of the parser in Phase 1, in the first part of phase two I try to optimize it. Using `std::ifstream::read()` meant that every single read forced a context switch. The operating system had to copy data from the disk into a kernel space buffer, and then copy it again into my user space buffer.
+After I finished the basic implementation of the parser in Phase 1, in the first part of phase two I try to optimize it.
+Using `std::ifstream::read()` meant that every single read forced a context switch.
+The operating system had to copy data from the disk into a kernel space buffer, and then copy it again into my user space buffer.
 
 In this first part of Phase 2, my goal was to eliminate this I/O overhead by using memory mapping.
 
@@ -12,13 +14,15 @@ Instead of calling read for each struct in the 10GB binary file, I mapped the fi
 I created a standalone file that uses `#ifdef` and separates 4-step Windows api function calls from the 3-step Linux function calls,
 which assures the parser will work on both platforms.
 
-This means the OS just gives me a single pointer to the start of the file and as I iterate forward, the CPU's hardware automatically pages the data from the SSD into RAM - this also means I can treat my data as continuous memory(I explain how I use this in the next point). This bypasses the double-copying entirely and removes system calls from the main parsing loop.
+This means the OS just gives me a single pointer to the start of the file and as I iterate forward, the CPU's hardware automatically pages the data from the SSD into RAM - this also means I can treat my data as continuous memory(I explain how I use this in the next point). 
+This bypasses the double-copying entirely and removes system calls from the main parsing loop.
 
 ### 2. In-Place Parsing and Pointer Arithmetic
 Since the whole file is now treated as one continuous array in memory, I didn't need any intermediate buffers anymore.
 
 To move through the file, I can just use simple arithmetic: I just add the message size to my current pointer (`ptr += message_length`) to jump to the next packet.
-To actually parse the data, I used `reinterpret_cast<const OrderMessage*>(ptr)`. This lets me place my C++ structs directly over the raw memory, meaning I can read the fields directly from RAM without having to copy any bytes.
+To actually parse the data, I used `reinterpret_cast<const OrderMessage*>(ptr)`. This lets me place my C++ structs directly over the raw memory, 
+meaning I can read the fields directly from RAM without having to copy any bytes.
 
 
 ## Benchmarks & Hardware Profiling
@@ -48,6 +52,7 @@ are not used anymore the data structure bottlenecks are more prominent in the pe
 ## Reflections & Next Steps
 By adding memory mapping, I solved the disk I/O bottleneck. The parser now runs as fast as the SSD allows. But the `perf` stats make it obvious that the new problem is memory access and the CPU cache.
 
-The low IPC and high cache misses happen because I'm still using `std::unordered_map` and `std::map` from Phase 1. These standard containers allocate nodes dynamically all over the heap, which forces the CPU to constantly wait on slow RAM fetches instead of using the fast L1/L2 cache.
+The low IPC and high cache misses happen because I'm still using `std::unordered_map` and `std::map` from Phase 1. These standard containers allocate nodes dynamically all over the heap,
+which forces the CPU to constantly wait on slow RAM fetches instead of using the fast L1/L2 cache.
 
 In Devlog #2.2, I will fix this by replacing these standard data structures with better fit data structures.
